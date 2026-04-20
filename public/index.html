@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <h1>Jondenas создал весь код</h1> 
+    <title>Ребят зацените это же копия r/place</title>
+    <style>
+        body { 
+            display: flex; flex-direction: column; align-items: center; 
+            background: #121212; color: white; font-family: sans-serif; 
+            margin: 0; padding: 20px;
+        }
+        .container { background: #1e1e1e; padding: 20px; border-radius: 15px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
+        canvas { 
+            border: 2px solid #333; background: white; 
+            image-rendering: pixelated; /* Чтобы пиксели были четкими */
+            cursor: crosshair;
+        }
+        .ui { margin-bottom: 15px; display: flex; gap: 20px; align-items: center; justify-content: center; }
+        #timer { font-size: 1.2em; font-weight: bold; color: #ff4500; }
+        .disabled { opacity: 0.5; pointer-events: none; }
+        input[type="color"] { border: none; width: 40px; height: 40px; cursor: pointer; background: none; }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <div class="ui">
+            <input type="color" id="colorPicker" value="#ff0000">
+            <div id="timer">Готов!</div>
+        </div>
+        <canvas id="place" width="600" height="600"></canvas>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+        const socket = io();
+        const canvas = document.getElementById('place');
+        const ctx = canvas.getContext('2d');
+        const timerLabel = document.getElementById('timer');
+        const size = 50; 
+        const pSize = canvas.width / size;
+        let canPlace = true;
+
+        function drawPixel(x, y, color) {
+            ctx.fillStyle = color;
+            ctx.fillRect(x * pSize, y * pSize, pSize, pSize);
+            // Рисуем легкую сетку
+            ctx.strokeStyle = "rgba(0,0,0,0.05)";
+            ctx.strokeRect(x * pSize, y * pSize, pSize, pSize);
+        }
+
+        socket.on('init', (board) => {
+            board.forEach((row, y) => {
+                row.forEach((color, x) => drawPixel(x, y, color));
+            });
+        });
+
+        socket.on('updatePixel', (data) => drawPixel(data.x, data.y, data.color));
+
+        socket.on('cooldownStarted', (duration) => {
+            canPlace = false;
+            canvas.classList.add('disabled');
+            let timeLeft = duration / 1000;
+
+            const interval = setInterval(() => {
+                timeLeft--;
+                timerLabel.innerText = `Жди: ${timeLeft}с`;
+                if (timeLeft <= 0) {
+                    clearInterval(interval);
+                    timerLabel.innerText = "Готов!";
+                    canPlace = true;
+                    canvas.classList.remove('disabled');
+                }
+            }, 1000);
+        });
+
+        canvas.addEventListener('click', (e) => {
+            if (!canPlace) return;
+            const rect = canvas.getBoundingClientRect();
+            const x = Math.floor((e.clientX - rect.left) / pSize);
+            const y = Math.floor((e.clientY - rect.top) / pSize);
+            const color = document.getElementById('colorPicker').value;
+            socket.emit('pixel', { x, y, color });
+        });
+    </script>
+</body>
+</html>
