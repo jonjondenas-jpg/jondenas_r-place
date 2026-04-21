@@ -1,88 +1,97 @@
 <!DOCTYPE html>
-<html lang="ru">
+<html>
 <head>
-    <meta charset="UTF-8">
-    <h1>Jondenas создал весь код</h1> 
-    <title>Ребят зацените это же копия r/place</title>
+    <title>Super Circle War</title>
     <style>
-        body { 
-            display: flex; flex-direction: column; align-items: center; 
-            background: #121212; color: white; font-family: sans-serif; 
-            margin: 0; padding: 20px;
-        }
-        .container { background: #1e1e1e; padding: 20px; border-radius: 15px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
-        canvas { 
-            border: 2px solid #333; background: white; 
-            image-rendering: pixelated; /* Чтобы пиксели были четкими */
-            cursor: crosshair;
-        }
-        .ui { margin-bottom: 15px; display: flex; gap: 20px; align-items: center; justify-content: center; }
-        #timer { font-size: 1.2em; font-weight: bold; color: #ff4500; }
-        .disabled { opacity: 0.5; pointer-events: none; }
-        input[type="color"] { border: none; width: 40px; height: 40px; cursor: pointer; background: none; }
+        body { margin: 0; background: #222; overflow: hidden; color: white; font-family: sans-serif; }
+        canvas { background: #333; display: block; }
+        .ui { position: absolute; top: 10px; left: 10px; pointer-events: none; }
     </style>
 </head>
 <body>
-
-    <div class="container">
-        <div class="ui">
-            <input type="color" id="colorPicker" value="#ff0000">
-            <div id="timer">Готов!</div>
-        </div>
-        <canvas id="place" width="600" height="600"></canvas>
-    </div>
+    <div class="ui">WASD - Движение, Клик - Стрельба</div>
+    <canvas id="game"></canvas>
 
     <script src="/socket.io/socket.io.js"></script>
     <script>
         const socket = io();
-        const canvas = document.getElementById('place');
+        const canvas = document.getElementById('game');
         const ctx = canvas.getContext('2d');
-        const timerLabel = document.getElementById('timer');
-        const size = 50; 
-        const pSize = canvas.width / size;
-        let canPlace = true;
 
-        function drawPixel(x, y, color) {
-            ctx.fillStyle = color;
-            ctx.fillRect(x * pSize, y * pSize, pSize, pSize);
-            // Рисуем легкую сетку
-            ctx.strokeStyle = "rgba(0,0,0,0.05)";
-            ctx.strokeRect(x * pSize, y * pSize, pSize, pSize);
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+
+        let players = {};
+        let bullets = [];
+        let myPos = { x: 100, y: 100 };
+        const speed = 5;
+        const keys = {};
+
+        // Управление
+        window.addEventListener('keydown', e => keys[e.code] = true);
+        window.addEventListener('keyup', e => keys[e.code] = false);
+
+        // Стрельба
+        window.addEventListener('mousedown', e => {
+            const angle = Math.atan2(e.clientY - myPos.y, e.clientX - myPos.x);
+            const bullet = {
+                x: myPos.x,
+                y: myPos.y,
+                velX: Math.cos(angle) * 10,
+                velY: Math.sin(angle) * 10,
+                owner: socket.id
+            };
+            socket.emit('shoot', bullet);
+        });
+
+        socket.on('updatePlayers', data => players = data);
+        socket.on('newBullet', b => bullets.push(b));
+
+        function gameLoop() {
+            // Движение моего игрока
+            if (keys['KeyW']) myPos.y -= speed;
+            if (keys['KeyS']) myPos.y += speed;
+            if (keys['KeyA']) myPos.x -= speed;
+            if (keys['KeyD']) myPos.x += speed;
+
+            if (keys['KeyW'] || keys['KeyS'] || keys['KeyA'] || keys['KeyD']) {
+                socket.emit('move', myPos);
+            }
+
+            // Отрисовка
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Пули
+            bullets.forEach((b, index) => {
+                b.x += b.velX;
+                b.y += b.velY;
+                ctx.fillStyle = 'yellow';
+                ctx.beginPath();
+                ctx.arc(b.x, b.y, 5, 0, Math.PI*2);
+                ctx.fill();
+                // Удаляем пули за экраном
+                if (b.x < 0 || b.x > canvas.width || b.y < 0 || b.y > canvas.height) {
+                    bullets.splice(index, 1);
+                }
+            });
+
+            // Игроки
+            for (let id in players) {
+                const p = players[id];
+                ctx.fillStyle = p.color;
+                ctx.beginPath();
+                ctx.arc(p.id === socket.id ? myPos.x : p.x, p.id === socket.id ? myPos.y : p.y, 20, 0, Math.PI*2);
+                ctx.fill();
+                
+                // Никнейм
+                ctx.fillStyle = 'white';
+                ctx.fillText(p.id === socket.id ? "ВЫ" : "ВРАГ", (p.id === socket.id ? myPos.x : p.x) - 10, (p.id === socket.id ? myPos.y : p.y) - 30);
+            }
+
+            requestAnimationFrame(gameLoop);
         }
 
-        socket.on('init', (board) => {
-            board.forEach((row, y) => {
-                row.forEach((color, x) => drawPixel(x, y, color));
-            });
-        });
-
-        socket.on('updatePixel', (data) => drawPixel(data.x, data.y, data.color));
-
-        socket.on('cooldownStarted', (duration) => {
-            canPlace = false;
-            canvas.classList.add('disabled');
-            let timeLeft = duration / 1000;
-
-            const interval = setInterval(() => {
-                timeLeft--;
-                timerLabel.innerText = `Жди: ${timeLeft}с`;
-                if (timeLeft <= 0) {
-                    clearInterval(interval);
-                    timerLabel.innerText = "Готов!";
-                    canPlace = true;
-                    canvas.classList.remove('disabled');
-                }
-            }, 1000);
-        });
-
-        canvas.addEventListener('click', (e) => {
-            if (!canPlace) return;
-            const rect = canvas.getBoundingClientRect();
-            const x = Math.floor((e.clientX - rect.left) / pSize);
-            const y = Math.floor((e.clientY - rect.top) / pSize);
-            const color = document.getElementById('colorPicker').value;
-            socket.emit('pixel', { x, y, color });
-        });
+        gameLoop();
     </script>
 </body>
 </html>
