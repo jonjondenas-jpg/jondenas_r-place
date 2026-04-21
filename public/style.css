@@ -1,0 +1,16 @@
+body { margin: 0; padding: 0; overflow: hidden; background: #1a1a1a; font-family: 'Courier New', monospace; color: white; user-select: none; }
+canvas { display: block; }
+#ui { position: absolute; top: 10px; left: 10px; pointer-events: none; }
+#moneyDisplay { font-size: 24px; color: #00ff88; font-weight: bold; }
+#chat { position: absolute; bottom: 80px; left: 10px; width: 300px; height: 150px; overflow-y: auto; background: rgba(0,0,0,0.5); padding: 5px; border-radius: 5px; pointer-events: none; }
+#chatInput { position: absolute; bottom: 50px; left: 10px; width: 290px; background: rgba(0,0,0,0.8); border: 1px solid #555; color: white; padding: 5px; display: none; }
+
+#inventory { 
+    position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    width: 400px; height: 300px; background: rgba(20,20,20,0.95); border: 3px solid #555; 
+    border-radius: 10px; display: none; padding: 20px; box-sizing: border-box;
+}
+#inventory h2 { text-align: center; margin-top: 0; color: #00ff88; }
+.inv-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+.inv-item { background: #333; border: 2px solid #555; height: 70px; display: flex; align-items: center; justify-content: center; font-size: 12px; cursor: pointer; }
+.inv-item:hover { border-color: #00ff88; }
