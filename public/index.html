@@ -1,93 +1,157 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Super Circle War</title>
-    <style>
-        body { margin: 0; background: #222; overflow: hidden; color: white; font-family: sans-serif; }
-        canvas { background: #333; display: block; }
-        .ui { position: absolute; top: 10px; left: 10px; pointer-events: none; }
-    </style>
+    <title>Zombie Survival Multi</title>
+    <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <div class="ui">WASD - Движение, Клик - Стрельба</div>
-    <canvas id="game"></canvas>
+    <canvas id="gameCanvas"></canvas>
+    
+    <div id="ui">
+        <div id="moneyDisplay">$ 0</div>
+        <div>HP: <span id="hpDisplay">100</span></div>
+        <div style="margin-top:10px; font-size:12px; opacity:0.7">WASD: Ходить | Клик: Стрелять | TAB: Инвентарь | Enter: Чат</div>
+    </div>
+
+    <div id="chat"></div>
+    <input type="text" id="chatInput" placeholder="Нажми Enter чтобы отправить...">
+
+    <div id="inventory">
+        <h2>ИНВЕНТАРЬ</h2>
+        <div class="inv-grid" id="invGrid">
+            </div>
+    </div>
 
     <script src="/socket.io/socket.io.js"></script>
     <script>
         const socket = io();
-        const canvas = document.getElementById('game');
+        const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
-
         canvas.width = window.innerWidth;
         canvas.height = window.innerHeight;
 
-        let players = {};
-        let bullets = [];
-        let myPos = { x: 100, y: 100 };
-        const speed = 5;
+        let serverData = { players: {}, zombies: [], bullets: [], moneyDrops: [] };
+        let myPos = { x: 1000, y: 1000 };
         const keys = {};
+        let isInvOpen = false;
+        let isChatOpen = false;
 
         // Управление
-        window.addEventListener('keydown', e => keys[e.code] = true);
+        window.addEventListener('keydown', e => {
+            if (e.code === 'Tab') { e.preventDefault(); isInvOpen = !isInvOpen; toggleInventory(); }
+            if (e.code === 'Enter') { handleChat(); }
+            if (!isChatOpen && !isInvOpen) keys[e.code] = true;
+        });
         window.addEventListener('keyup', e => keys[e.code] = false);
-
-        // Стрельба
+        
         window.addEventListener('mousedown', e => {
-            const angle = Math.atan2(e.clientY - myPos.y, e.clientX - myPos.x);
-            const bullet = {
-                x: myPos.x,
-                y: myPos.y,
-                velX: Math.cos(angle) * 10,
-                velY: Math.sin(angle) * 10,
-                owner: socket.id
-            };
-            socket.emit('shoot', bullet);
+            if (isInvOpen || isChatOpen) return;
+            // Переводим клик экрана в координаты мира
+            const targetX = myPos.x + (e.clientX - canvas.width / 2);
+            const targetY = myPos.y + (e.clientY - canvas.height / 2);
+            socket.emit('shoot', { targetX, targetY });
         });
 
-        socket.on('updatePlayers', data => players = data);
-        socket.on('newBullet', b => bullets.push(b));
+        socket.on('worldUpdate', data => {
+            serverData = data;
+            if (data.players[socket.id]) {
+                document.getElementById('moneyDisplay').innerText = '$ ' + data.players[socket.id].money;
+                document.getElementById('hpDisplay').innerText = data.players[socket.id].health;
+            }
+        });
 
+        // Чат
+        socket.on('chat', data => {
+            const chatLog = document.getElementById('chat');
+            const msg = document.createElement('div');
+            msg.innerHTML = `<b style="color:${serverData.players[data.id]?.color}">${data.id.slice(0,4)}:</b> ${data.msg}`;
+            chatLog.appendChild(msg);
+            chatLog.scrollTop = chatLog.scrollHeight;
+        });
+
+        function handleChat() {
+            const input = document.getElementById('chatInput');
+            if (!isChatOpen) {
+                isChatOpen = true; input.style.display = 'block'; input.focus();
+                keys = {}; // Стопаем движение
+            } else {
+                if (input.value) socket.emit('chat', input.value);
+                input.value = ''; input.style.display = 'none'; input.blur(); isChatOpen = false;
+            }
+        }
+
+        function toggleInventory() {
+            const invDiv = document.getElementById('inventory');
+            const grid = document.getElementById('invGrid');
+            invDiv.style.display = isInvOpen ? 'block' : 'none';
+            if (isInvOpen && serverData.players[socket.id]) {
+                grid.innerHTML = '';
+                serverData.players[socket.id].inventory.forEach(item => {
+                    const div = document.createElement('div');
+                    div.className = 'inv-item'; div.innerText = item;
+                    grid.appendChild(div);
+                });
+            }
+        }
+
+        // Основной цикл отрисовки (Client-side)
         function gameLoop() {
-            // Движение моего игрока
-            if (keys['KeyW']) myPos.y -= speed;
-            if (keys['KeyS']) myPos.y += speed;
-            if (keys['KeyA']) myPos.x -= speed;
-            if (keys['KeyD']) myPos.x += speed;
-
-            if (keys['KeyW'] || keys['KeyS'] || keys['KeyA'] || keys['KeyD']) {
+            // Мягкое движение (предикция)
+            if (!isInvOpen && !isChatOpen) {
+                if (keys['KeyW']) myPos.y -= 4; if (keys['KeyS']) myPos.y += 4;
+                if (keys['KeyA']) myPos.x -= 4; if (keys['KeyD']) myPos.x += 4;
                 socket.emit('move', myPos);
             }
 
-            // Отрисовка
             ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // Камера (центрируемся на себе)
+            ctx.save();
+            ctx.translate(canvas.width / 2 - myPos.x, canvas.height / 2 - myPos.y);
 
-            // Пули
-            bullets.forEach((b, index) => {
-                b.x += b.velX;
-                b.y += b.velY;
-                ctx.fillStyle = 'yellow';
-                ctx.beginPath();
-                ctx.arc(b.x, b.y, 5, 0, Math.PI*2);
-                ctx.fill();
-                // Удаляем пули за экраном
-                if (b.x < 0 || b.x > canvas.width || b.y < 0 || b.y > canvas.height) {
-                    bullets.splice(index, 1);
-                }
-            });
-
-            // Игроки
-            for (let id in players) {
-                const p = players[id];
-                ctx.fillStyle = p.color;
-                ctx.beginPath();
-                ctx.arc(p.id === socket.id ? myPos.x : p.x, p.id === socket.id ? myPos.y : p.y, 20, 0, Math.PI*2);
-                ctx.fill();
-                
-                // Никнейм
-                ctx.fillStyle = 'white';
-                ctx.fillText(p.id === socket.id ? "ВЫ" : "ВРАГ", (p.id === socket.id ? myPos.x : p.x) - 10, (p.id === socket.id ? myPos.y : p.y) - 30);
+            // Отрисовка сетки (земля)
+            ctx.strokeStyle = '#333';
+            for(let i=0; i<=2000; i+=100) {
+                ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, 2000); ctx.stroke();
+                ctx.beginPath(); ctx.moveTo(0, i); ctx.lineTo(2000, i); ctx.stroke();
             }
 
+            // Деньги на земле
+            serverData.moneyDrops.forEach(m => {
+                ctx.fillStyle = '#00ff88'; ctx.beginPath(); ctx.arc(m.x, m.y, 8, 0, Math.PI*2); ctx.fill();
+                ctx.fillStyle = 'black'; ctx.font = 'bold 10px Arial'; ctx.fillText('$', m.x-3, m.y+3);
+            });
+
+            // Пули
+            serverData.bullets.forEach(b => {
+                ctx.fillStyle = b.owner === socket.id ? '#fff' : '#ff4444';
+                ctx.beginPath(); ctx.arc(b.x, b.y, 4, 0, Math.PI*2); ctx.fill();
+            });
+
+            // Зомби
+            serverData.zombies.forEach(z => {
+                ctx.fillStyle = `rgb(${150 + (50 - z.health)*2}, 50, 50)`; // Краснеет от урона
+                ctx.beginPath(); ctx.arc(z.x, z.y, 20, 0, Math.PI*2); ctx.fill();
+                // Полоска ХП зомби
+                ctx.fillStyle = 'red'; ctx.fillRect(z.x - 20, z.y - 30, z.health * 0.8, 5);
+            });
+
+            // Другие игроки
+            for (let id in serverData.players) {
+                if (id === socket.id) continue; // Себя рисуем отдельно
+                const p = serverData.players[id];
+                ctx.fillStyle = p.color; ctx.beginPath(); ctx.arc(p.x, p.y, 25, 0, Math.PI*2); ctx.fill();
+                ctx.fillStyle = 'white'; ctx.font = '12px Courier'; ctx.fillText(id.slice(0,4), p.x-15, p.y-35);
+            }
+
+            // Мой игрок (всегда в центре)
+            if (serverData.players[socket.id]) {
+                ctx.fillStyle = serverData.players[socket.id].color;
+                ctx.beginPath(); ctx.arc(myPos.x, myPos.y, 25, 0, Math.PI*2); ctx.fill();
+                ctx.strokeStyle = '#fff'; ctx.lineWidth = 3; ctx.stroke(); // Обводка себя
+            }
+
+            ctx.restore();
             requestAnimationFrame(gameLoop);
         }
 
